@@ -1,0 +1,138 @@
+name: Claude Issue Triage
+
+# Cada vez que se abre un issue o se edita su título/descripción, Claude lo analiza,
+# le asigna labels del catálogo del repo y publica (o actualiza) un comentario
+# con un diagnóstico técnico que sirve de punto de partida para implementar la solución.
+
+on:
+  issues:
+    types: [opened, edited]
+
+concurrency:
+  group: issue-triage-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  triage:
+    # Evita bucles: no reaccionar a ediciones hechas por bots.
+    if: github.event.sender.type != 'Bot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # Garantiza que el catálogo de labels exista (idempotente: --force actualiza si ya existe).
+      - name: Ensure triage labels exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          create() { gh label create "$1" --color "$2" --description "$3" --force; }
+
+          # Tipo
+          create "bug"            "d73a4a" "Algo no funciona como debería"
+          create "enhancement"    "a2eeef" "Nueva funcionalidad o mejora"
+          create "question"       "d876e3" "Duda o solicitud de información"
+          create "documentation"  "0075ca" "Cambios en README o documentación"
+          create "refactor"       "fbca04" "Mejora interna sin cambio funcional"
+
+          # Área del código afectada
+          create "area: gameplay"   "1d76db" "Lógica del juego: piezas, colisiones, rotación, gravedad"
+          create "area: render"     "5319e7" "Dibujo en canvas, colores, ghost piece, next"
+          create "area: ui"         "0e8a16" "HTML/CSS, overlay, paneles, responsive"
+          create "area: controles"  "c2e0c6" "Teclado, inputs, mapeo de teclas"
+          create "area: puntuacion" "bfd4f2" "Score, líneas, nivel, velocidad"
+
+          # Prioridad
+          create "prioridad: alta"  "b60205" "Bloquea el juego o afecta a todos los usuarios"
+          create "prioridad: media" "e99695" "Afecta la experiencia pero hay workaround"
+          create "prioridad: baja"  "f9d0c4" "Cosmético o de bajo impacto"
+
+          # Estado
+          create "needs-info" "ededed" "Falta información para reproducir o entender el issue"
+          create "triaged"    "c5def5" "Analizado automáticamente por Claude"
+
+      - name: Run Claude issue triage
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          claude_args: |
+            --allowedTools "Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh issue edit:*),Bash(gh issue comment:*),Bash(gh search issues:*),Bash(gh label list:*),Bash(gh api:*),Read,Glob,Grep,Write"
+          prompt: |
+            Eres el asistente de triage de issues del repositorio ${{ github.repository }} (un Tetris en
+            JavaScript vanilla sobre HTML5 Canvas: index.html + style.css + game.js, sin dependencias).
+            Lee CLAUDE.md para entender la arquitectura antes de analizar nada.
+
+            Evento: ${{ github.event.action }}
+            Issue: #${{ github.event.issue.number }}
+
+            ## Tu tarea
+
+            1. Obtén el issue completo con `gh issue view ${{ github.event.issue.number }} --comments`.
+            2. Lista los labels disponibles con `gh label list --limit 100`. SOLO puedes usar labels de esa lista.
+            3. Busca issues relacionados o duplicados con `gh search issues "<palabras clave>" --repo ${{ github.repository }} --limit 10`.
+            4. Explora el código (Read, Grep, Glob) para localizar las funciones, variables y archivos
+               relacionados con el problema descrito. Cita rutas y líneas concretas (ej. `game.js:120`).
+            5. Asigna labels con `gh issue edit ${{ github.event.issue.number }} --add-label "..." --add-label "..."`:
+               - Exactamente UN label de tipo: bug, enhancement, question, documentation o refactor.
+               - Uno o más labels de área (`area: ...`) según el código afectado.
+               - Exactamente UN label de prioridad (`prioridad: ...`).
+               - `needs-info` si el issue no tiene información suficiente para reproducirlo o entenderlo.
+               - `duplicate` solo si es duplicado de otro issue ABIERTO; menciónalo en el diagnóstico.
+               - Siempre añade `triaged`.
+               Si el evento es `edited`, revisa los labels actuales y elimina con `--remove-label` los que ya
+               no apliquen (por ejemplo, quita `needs-info` si ahora sí hay información suficiente).
+            6. Publica el diagnóstico como comentario. El comentario DEBE empezar con la línea exacta
+               `<!-- claude-triage -->` para poder identificarlo después.
+               - Primero busca si ya existe un comentario tuyo:
+                 `gh api repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments --jq '.[] | select(.body | startswith("<!-- claude-triage -->")) | .id'`
+               - Si existe, ACTUALÍZALO en lugar de crear otro:
+                 escribe el cuerpo en un archivo con Write (ej. /tmp/triage.md) y ejecuta
+                 `gh api --method PATCH repos/${{ github.repository }}/issues/comments/<ID> -F body=@/tmp/triage.md`
+               - Si no existe, créalo con `gh issue comment ${{ github.event.issue.number }} --body-file /tmp/triage.md`.
+
+            ## Formato del comentario (en español, Markdown)
+
+            <!-- claude-triage -->
+            ## 🔍 Diagnóstico automático
+
+            **Resumen:** una o dos frases con qué pide o reporta el issue.
+
+            **Clasificación:** tipo · área(s) · prioridad, con una justificación breve de cada una.
+
+            **Análisis técnico:**
+            - Causa probable o punto de implementación, con referencias a archivo y línea.
+            - Funciones y variables de estado involucradas (ej. `collide()`, `dropInterval`, `PIECES`).
+            - Valores acoplados que habría que mantener en sincronía (ver sección "Coupled values" de CLAUDE.md).
+
+            **Plan de implementación sugerido:**
+            1. Pasos concretos y ordenados para resolverlo.
+            2. ...
+
+            **Cómo verificarlo:** pasos manuales en el navegador (no hay tests automatizados).
+
+            **Riesgos / dudas:** efectos secundarios, ambigüedades o preguntas al autor si falta información.
+
+            **Relacionados:** issues similares encontrados (#n), o "ninguno".
+
+            ---
+            _Generado automáticamente por Claude. Este diagnóstico es orientativo; revísalo antes de implementar._
+
+            ## Reglas
+
+            - No modifiques ningún archivo del repositorio ni crees ramas, commits o PRs.
+            - No uses labels que no existan en el repo.
+            - Sé concreto: la meta es que otra persona (o Claude en un PR) pueda implementar la solución
+              partiendo de este diagnóstico sin volver a investigar desde cero.
+            - Si el issue está vacío o es incomprensible, aplica `needs-info` y en el comentario pide la
+              información concreta que falta (pasos para reproducir, navegador, comportamiento esperado).

@@ -25,6 +25,7 @@ Implementación del clásico **Tetris** en JavaScript vanilla, usando HTML5 Canv
   - [Tecnologías](#tecnologías)
   - [Estructura del proyecto](#estructura-del-proyecto)
   - [Personalización](#personalización)
+  - [Automatización con Claude](#automatización-con-claude)
   - [Licencia](#licencia)
 
 ---
@@ -159,7 +160,11 @@ Cuando una pieza recién generada ya colisiona al aparecer (`spawn`), se dispara
 ├── index.html      # Estructura del DOM y canvas
 ├── style.css       # Estilos del juego (dark theme)
 ├── game.js         # Toda la lógica del Tetris (~300 líneas)
-└── README.md
+├── README.md
+└── .github/workflows/
+    ├── claude.yml                # Responde a menciones @claude en issues y PRs
+    ├── claude-code-review.yml    # Revisa automáticamente cada pull request
+    └── claude-issue-triage.yml   # Clasifica y diagnostica cada issue nuevo o editado
 ```
 
 ---
@@ -178,6 +183,26 @@ Algunos parámetros fáciles de tunear en `game.js`:
 | `dropInterval` | Velocidad inicial de caída en ms         | `1000`                |
 
 > Si cambias `COLS`, `ROWS` o `BLOCK`, recuerda ajustar también `width` y `height` del `<canvas id="board">` en `index.html` para que coincida (`COLS × BLOCK` × `ROWS × BLOCK`).
+
+---
+
+## Automatización con Claude
+
+El repositorio usa [Claude Code GitHub Actions](https://github.com/anthropics/claude-code-action) con el secreto `CLAUDE_CODE_OAUTH_TOKEN`.
+
+### Triage automático de issues (`claude-issue-triage.yml`)
+
+Cada vez que se **abre un issue** o se **edita su título o descripción**, Claude:
+
+1. Lee el issue, `CLAUDE.md` y el código fuente relacionado.
+2. Asigna labels del catálogo del repo (el workflow los crea si no existen):
+   - **Tipo:** `bug`, `enhancement`, `question`, `documentation`, `refactor`
+   - **Área:** `area: gameplay`, `area: render`, `area: ui`, `area: controles`, `area: puntuacion`
+   - **Prioridad:** `prioridad: alta`, `prioridad: media`, `prioridad: baja`
+   - **Estado:** `triaged` (siempre), `needs-info` si falta información, `duplicate` si ya existe un issue abierto igual
+3. Publica un comentario de **diagnóstico** con la causa probable, los archivos y líneas implicados, un plan de implementación sugerido y cómo verificarlo manualmente.
+
+Si el issue se edita, el comentario de diagnóstico se actualiza en lugar de crear uno nuevo. Claude nunca modifica código ni crea ramas o PRs desde este workflow.
 
 ---
 
