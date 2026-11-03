@@ -76,6 +76,10 @@ body {
   position: relative;
 }
 
+.board-wrap {
+  position: relative;
+}
+
 .game-container {
   display: flex;
   gap: 20px;

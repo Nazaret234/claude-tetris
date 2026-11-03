@@ -304,7 +304,9 @@ document.addEventListener('keydown', e => {
 restartBtn.addEventListener('click', init);
 
 // El tema no es estado de partida: vive fuera de init() para que reiniciar no lo cambie.
+let currentTheme = 'dark';
 function setTheme(theme) {
+  currentTheme = theme;
   const light = theme === 'light';
   document.documentElement.dataset.theme = theme;
   themeToggle.setAttribute('aria-pressed', String(light));
@@ -316,8 +318,9 @@ function setTheme(theme) {
 }
 
 themeToggle.addEventListener('click', () => {
-  setTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light');
+  setTheme(currentTheme === 'light' ? 'dark' : 'light');
   themeToggle.blur(); // evita que Space active el botón en vez del hard drop
 });
 
 init();
+setTheme('dark');
