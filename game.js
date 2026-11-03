@@ -39,6 +39,8 @@ const overlay = document.getElementById('overlay');
 const overlayTitle = document.getElementById('overlay-title');
 const overlayScore = document.getElementById('overlay-score');
 const restartBtn = document.getElementById('restart-btn');
+const themeToggle = document.getElementById('theme-toggle');
+let gridColor = '#22222e'; // tema oscuro por defecto; setTheme lo lee de --grid
 
 let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId;
 
@@ -169,7 +171,7 @@ function drawBlock(context, x, y, colorIndex, size, alpha) {
 }
 
 function drawGrid() {
-  ctx.strokeStyle = '#22222e';
+  ctx.strokeStyle = gridColor;
   ctx.lineWidth = 0.5;
   for (let c = 1; c < COLS; c++) {
     ctx.beginPath();
@@ -300,5 +302,22 @@ document.addEventListener('keydown', e => {
 });
 
 restartBtn.addEventListener('click', init);
+
+// El tema no es estado de partida: vive fuera de init() para que reiniciar no lo cambie.
+function setTheme(theme) {
+  const light = theme === 'light';
+  document.documentElement.dataset.theme = theme;
+  themeToggle.setAttribute('aria-pressed', String(light));
+  themeToggle.textContent = light ? '☾ Modo oscuro' : '☀ Modo claro';
+  gridColor = getComputedStyle(document.documentElement).getPropertyValue('--grid').trim();
+  // El loop está cancelado en pausa/game over: redibujar manualmente.
+  draw();
+  drawNext();
+}
+
+themeToggle.addEventListener('click', () => {
+  setTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light');
+  themeToggle.blur(); // evita que Space active el botón en vez del hard drop
+});
 
 init();
